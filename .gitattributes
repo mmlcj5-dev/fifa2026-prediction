@@ -1,0 +1,4 @@
+# Git LFS — track large model files so they don't bloat the repo history
+models/ensemble.pkl        filter=lfs diff=lfs merge=lfs -text
+models/random_forest.pkl   filter=lfs diff=lfs merge=lfs -text
+models/xgboost.pkl         filter=lfs diff=lfs merge=lfs -text
