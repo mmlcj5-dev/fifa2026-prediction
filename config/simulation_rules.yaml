@@ -1,0 +1,6 @@
+world_cup_2026:
+  groups: 12
+  teams_per_group: 4
+  advance_per_group: 2
+  best_third_place: 8
+  knockout_start: "round_of_32"

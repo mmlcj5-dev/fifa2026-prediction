@@ -1,0 +1,16 @@
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  results_dir: "data/results"
+  predictions_dir: "data/results/predictions"
+  simulations_dir: "data/results/simulations"
+
+files:
+  matches: "international_matches.csv"
+  elo: "elo_ratings.csv"
+  fixtures_2026: "fifa2026_fixtures.csv"
+  teams_metadata: "teams_metadata.csv"
+  train_matches: "train_matches.csv"
+  features: "features.csv"
+  model_ready: "model_ready.csv"
+  model: "match_model_xgb.pkl"
