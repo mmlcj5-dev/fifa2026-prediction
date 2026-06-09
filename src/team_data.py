@@ -87,29 +87,24 @@ GROUPS = {
     "L": ["Croatia_alt", "Austria", "Nigeria", "Iraq"],
 }
 
-# Actual WC2026 groups (corrected, update as needed)
+# WC2026 groups — source: FIFA Official Match Schedule v17, April 10 2026
 GROUPS = {
-    "A": ["Argentina",   "Ecuador",    "Chile_ph",    "Canada"],
-    "B": ["France",      "Morocco",    "Croatia",     "Algeria"],
-    "C": ["Spain",       "Uruguay",    "Senegal",     "New Zealand"],
-    "D": ["England",     "Netherlands","Serbia",      "Honduras"],
-    "E": ["Brazil",      "Colombia",   "Japan",       "Bolivia"],
-    "F": ["Portugal",    "Turkey",     "South Korea", "Indonesia"],
-    "G": ["Germany",     "Belgium",    "Egypt",       "Jamaica"],
-    "H": ["Italy",       "Switzerland","Iran",        "Jordan"],
-    "I": ["USA",         "Mexico",     "Panama",      "Venezuela"],
-    "J": ["Australia",   "Denmark",    "Ivory Coast", "Cuba"],
-    "K": ["Poland",      "Austria",    "Nigeria",     "Uzbekistan"],
-    "L": ["South Africa","Saudi Arabia","Iraq",       "Scotland"],
+    "A": ["Mexico",      "South Africa",        "Korea Republic",  "Czechia"],
+    "B": ["Canada",      "Bosnia & Herzegovina","Qatar",           "Switzerland"],
+    "C": ["Brazil",      "Morocco",             "Haiti",           "Scotland"],
+    "D": ["USA",         "Paraguay",            "Australia",       "Türkiye"],
+    "E": ["Germany",     "Curaçao",             "Côte d'Ivoire",   "Ecuador"],
+    "F": ["Netherlands", "Japan",               "Sweden",          "Tunisia"],
+    "G": ["Belgium",     "Egypt",               "IR Iran",         "New Zealand"],
+    "H": ["Spain",       "Cabo Verde",          "Saudi Arabia",    "Uruguay"],
+    "I": ["France",      "Senegal",             "Iraq",            "Norway"],
+    "J": ["Argentina",   "Algeria",             "Austria",         "Jordan"],
+    "K": ["Portugal",    "Congo DR",            "Uzbekistan",      "Colombia"],
+    "L": ["England",     "Croatia",             "Ghana",           "Panama"],
 }
 
-# Fix placeholder teams by replacing with real qualified teams
-_team_fixes = {
-    "Chile_ph": "Paraguay",
-    "Netherlands_alt": "Ukraine",
-    "Germany_alt": "Hungary",
-    "Croatia_alt": "Greece",
-}
+# No placeholder fixes needed — all teams are confirmed
+_team_fixes = {}
 
 def _apply_fixes():
     for group, teams in GROUPS.items():
