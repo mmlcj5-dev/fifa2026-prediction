@@ -26,6 +26,7 @@ from src.team_data       import TEAM_ELO, GROUPS, HOST_NATIONS, get_form_stats
 from src.simulate        import predict_win_prob, run_monte_carlo
 from src.schedule        import GROUP_MATCHES, VENUES, KNOCKOUT_ROUNDS
 from src.live_scores     import (get_live_scores, get_group_standings,
+                                  compute_group_standings,
                                   is_api_configured, is_tournament_live,
                                   status_badge)
 from src.group_predictor import run_group_simulations
@@ -229,7 +230,7 @@ elif page == "Tournament Schedule":
         st.info("Run a simulation on the **Winner Probabilities** page to color-code teams.")
 
     # ── View selector ─────────────────────────────────────────────────────────
-    view = st.radio("View", ["Group Cards", "Match Schedule", "Knockout Rounds"],
+    view = st.radio("View", ["Group Cards", "Standings", "Match Schedule", "Knockout Rounds"],
                     horizontal=True)
 
     # ── View A: Group Cards ───────────────────────────────────────────────────
@@ -257,6 +258,65 @@ elif page == "Tournament Schedule":
                     unsafe_allow_html=True,
                 )
 
+    # ── View A.5: Standings ───────────────────────────────────────────────────
+    elif view == "Standings":
+        st.markdown("### Current Group Standings")
+
+        live = get_live_scores()
+        if live:
+            n_finished = sum(1 for v in live.values() if v.get("status") == "FINISHED")
+            st.markdown(
+                "<div style='background:#14532d;border:1px solid #16a34a;"
+                "border-radius:6px;padding:6px 14px;margin-bottom:10px;"
+                f"font-size:0.82em'>🔴 Live score data active — {n_finished} match(es) "
+                "completed so far · standings update every 60 s</div>",
+                unsafe_allow_html=True,
+            )
+        elif is_tournament_live() and not is_api_configured():
+            st.warning(
+                "Tournament is live! Add your **FOOTBALL_DATA_API_KEY** environment variable "
+                "to enable live scores and real standings. Get a free key at football-data.org. "
+                "Showing all-zero tables below until results come in."
+            )
+        else:
+            st.info(
+                "Standings will populate automatically once group matches kick off "
+                "and live score data is available."
+            )
+
+        sel_group_st = st.selectbox(
+            "Filter by group", ["All"] + list(GROUPS.keys()), key="standings_group_filter"
+        )
+        groups_to_show = list(GROUPS.keys()) if sel_group_st == "All" else [sel_group_st]
+
+        cols_per_row = 3
+        for row_start in range(0, len(groups_to_show), cols_per_row):
+            cols = st.columns(cols_per_row)
+            for ci, col in enumerate(cols):
+                gi = row_start + ci
+                if gi >= len(groups_to_show):
+                    break
+                gname = groups_to_show[gi]
+
+                # Prefer the official API standings table; fall back to a table
+                # we compute ourselves from completed match results.
+                table = get_group_standings(gname) if is_tournament_live() else None
+                if table:
+                    df = pd.DataFrame(table).rename(columns={
+                        "team": "Team", "pts": "Pts", "played": "P",
+                        "gd": "GD", "gf": "GF",
+                    })
+                else:
+                    group_matches = [m for m in GROUP_MATCHES if m[5] == gname]
+                    df = pd.DataFrame(compute_group_standings(group_matches, live))
+
+                col.markdown(
+                    f"<div style='font-size:0.75em;color:#9ca3af;letter-spacing:.06em;"
+                    f"margin-bottom:4px'>GROUP {gname}</div>",
+                    unsafe_allow_html=True,
+                )
+                col.dataframe(df, use_container_width=True, hide_index=True)
+
     # ── View B: Match Schedule ────────────────────────────────────────────────
     elif view == "Match Schedule":
         # Filter controls
@@ -283,6 +343,7 @@ elif page == "Tournament Schedule":
             rows.append({
                 "Group":   grp,
                 "MD":      md,
+                "DateISO": date,
                 "Date":    date_fmt,
                 "Time (CT)": time_et,
                 "Home":    home_t,
@@ -292,6 +353,9 @@ elif page == "Tournament Schedule":
                 "p_home":  p_h,
                 "p_away":  p_a,
             })
+
+        # Sort chronologically: date first, then kick-off time
+        rows.sort(key=lambda r: (r["DateISO"], r["Time (CT)"]))
 
         # Fetch live scores (empty dict before Jun 11 or if no API key)
         live = get_live_scores()
@@ -311,12 +375,17 @@ elif page == "Tournament Schedule":
         if not rows:
             st.warning("No matches for this filter.")
         else:
-            # Group by date for display
+            # Group by date for display (rows already sorted chronologically,
+            # so insertion order into this dict is chronological too)
             by_date = defaultdict(list)
+            date_labels = {}
             for r in rows:
-                by_date[r["Date"]].append(r)
+                by_date[r["DateISO"]].append(r)
+                date_labels[r["DateISO"]] = r["Date"]
 
-            for date_label, matches in by_date.items():
+            for date_iso in sorted(by_date.keys()):
+                date_label = date_labels[date_iso]
+                matches = by_date[date_iso]
                 st.markdown(
                     f"<div style='background:#0f172a;padding:4px 12px;"
                     f"border-left:3px solid #f59e0b;margin:12px 0 6px 0;"
@@ -446,9 +515,12 @@ elif page == "Group Predictor":
     st.markdown(f"### Group {sel_group}  ·  {n_sims:,} simulations")
 
     # ── Live standings override ───────────────────────────────────────────────
-    live_standings = get_group_standings(sel_group) if is_tournament_live() else None
-    if live_standings:
-        st.markdown("#### 📡 Live Standings")
+    if is_tournament_live():
+        live_standings = get_group_standings(sel_group)
+        if not live_standings:
+            group_matches = [m for m in GROUP_MATCHES if m[5] == sel_group]
+            live_standings = compute_group_standings(group_matches)
+        st.markdown("#### 📡 Current Standings")
         st.dataframe(pd.DataFrame(live_standings), use_container_width=True, hide_index=True)
         st.markdown("---")
 

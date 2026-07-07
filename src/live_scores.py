@@ -16,6 +16,9 @@ import os
 import datetime
 import requests
 from functools import lru_cache
+from dotenv import load_dotenv
+
+load_dotenv()  # reads .env in the project root into os.environ (no-op if missing)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -145,6 +148,74 @@ def get_group_standings(group: str) -> list[dict] | None:
     except Exception:
         pass
     return None
+
+
+# ── Local standings computation (no dependency on the /standings endpoint) ────
+
+def compute_group_standings(group_matches: list[tuple], live_scores: dict | None = None) -> list[dict]:
+    """
+    Build a group standings table from completed match results.
+
+    group_matches: list of (date, time_ct, home, away, venue_key, group, matchday)
+                   tuples for ONE group (already filtered to that group),
+                   e.g. [m for m in GROUP_MATCHES if m[5] == "A"].
+    live_scores:   dict from get_live_scores(); if None, it is fetched here.
+
+    Returns a list of dicts sorted by Pts, then GD, then GF (FIFA tiebreak order,
+    head-to-head/fair-play not applied — good enough for a quick standings view):
+        {"Team": str, "P": int, "W": int, "D": int, "L": int,
+         "GF": int, "GA": int, "GD": int, "Pts": int}
+
+    Teams with zero completed matches still appear (all zeros) so the table
+    always shows the full group.
+    """
+    if live_scores is None:
+        live_scores = get_live_scores()
+
+    teams = []
+    for _, _, home, away, *_ in group_matches:
+        if home not in teams:
+            teams.append(home)
+        if away not in teams:
+            teams.append(away)
+
+    table = {t: {"Team": t, "P": 0, "W": 0, "D": 0, "L": 0,
+                 "GF": 0, "GA": 0, "GD": 0, "Pts": 0} for t in teams}
+
+    for _, _, home, away, *_ in group_matches:
+        data = live_scores.get((home, away))
+        if not data or data.get("status") not in ("FINISHED",):
+            continue
+        hs, as_ = data.get("home_score"), data.get("away_score")
+        if hs is None or as_ is None:
+            continue
+
+        row_h, row_a = table[home], table[away]
+        row_h["P"] += 1
+        row_a["P"] += 1
+        row_h["GF"] += hs
+        row_h["GA"] += as_
+        row_a["GF"] += as_
+        row_a["GA"] += hs
+
+        if hs > as_:
+            row_h["W"] += 1
+            row_h["Pts"] += 3
+            row_a["L"] += 1
+        elif hs < as_:
+            row_a["W"] += 1
+            row_a["Pts"] += 3
+            row_h["L"] += 1
+        else:
+            row_h["D"] += 1
+            row_a["D"] += 1
+            row_h["Pts"] += 1
+            row_a["Pts"] += 1
+
+    for row in table.values():
+        row["GD"] = row["GF"] - row["GA"]
+
+    return sorted(table.values(), key=lambda r: (-r["Pts"], -r["GD"], -r["GF"]))
 
 
 # ── Status badge helper (used by Streamlit UI) ────────────────────────────────
