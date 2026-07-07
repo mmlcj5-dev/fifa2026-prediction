@@ -30,6 +30,23 @@ REQUEST_TIMEOUT  = 8             # seconds
 # Status codes that mean the match has a real score
 FINISHED_STATUSES = {"FINISHED", "IN_PLAY", "PAUSED", "EXTRA_TIME", "PENALTY_SHOOTOUT"}
 
+# football-data.org team names → names used in src/schedule.py.
+# Scores are matched by exact (home, away) name, so any API spelling that
+# differs from ours must be translated here or the match is silently dropped.
+API_TO_APP_NAMES = {
+    "United States":       "USA",
+    "South Korea":         "Korea Republic",
+    "Turkey":              "Türkiye",
+    "Iran":                "IR Iran",
+    "Ivory Coast":         "Côte d'Ivoire",
+    "Cape Verde Islands":  "Cabo Verde",
+    "Bosnia-Herzegovina":  "Bosnia & Herzegovina",
+}
+
+
+def _normalize_team(name: str) -> str:
+    return API_TO_APP_NAMES.get(name, name)
+
 
 def _api_key() -> str | None:
     return os.environ.get("FOOTBALL_DATA_API_KEY")
@@ -98,8 +115,8 @@ def get_live_scores() -> dict[tuple[str, str], dict]:
 
     results = {}
     for m in fetch_matches():
-        home = m.get("homeTeam", {}).get("name", "")
-        away = m.get("awayTeam", {}).get("name", "")
+        home = _normalize_team(m.get("homeTeam", {}).get("name") or "")
+        away = _normalize_team(m.get("awayTeam", {}).get("name") or "")
         if not home or not away:
             continue
 
@@ -137,7 +154,7 @@ def get_group_standings(group: str) -> list[dict] | None:
             if standing.get("group") == f"Group {group}":
                 return [
                     {
-                        "team":   row["team"]["name"],
+                        "team":   _normalize_team(row["team"]["name"]),
                         "pts":    row["points"],
                         "played": row["playedGames"],
                         "gd":     row["goalDifference"],
