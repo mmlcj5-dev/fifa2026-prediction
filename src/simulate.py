@@ -91,16 +91,20 @@ def _dc_sample_score(lambda_a: float, lambda_b: float,
 
 def _build_features(team_a: str, team_b: str,
                     neutral: bool = True,
-                    apply_host_flag: bool = False) -> pd.DataFrame:
+                    apply_host_flag: bool = False,
+                    elo_map: dict | None = None) -> pd.DataFrame:
     """
     Build a one-row feature DataFrame for team_a (home/left) vs team_b (away/right).
 
     apply_host_flag — set True only in the Match Predictor UI where a real
     home advantage matters.  False (default) for tournament simulation where
     all games are played at neutral WC venues.
+    elo_map — alternative Elo ratings (e.g. updated with live tournament
+    results); defaults to the pre-tournament TEAM_ELO.
     """
-    elo_a = TEAM_ELO.get(team_a, 1500)
-    elo_b = TEAM_ELO.get(team_b, 1500)
+    elo = elo_map if elo_map is not None else TEAM_ELO
+    elo_a = elo.get(team_a, 1500)
+    elo_b = elo.get(team_b, 1500)
     form_a = get_form_stats(team_a)
     form_b = get_form_stats(team_b)
 
@@ -133,22 +137,27 @@ def _build_features(team_a: str, team_b: str,
 
 def predict_win_prob(team_a: str, team_b: str,
                      neutral: bool = True,
-                     apply_host_flag: bool = False) -> tuple[float, float, float]:
+                     apply_host_flag: bool = False,
+                     elo_map: dict | None = None) -> tuple[float, float, float]:
     """
     Return (p_a_wins, p_draw, p_b_wins) for a match.
 
     The ensemble model is binary (home wins vs doesn't).  We run it in both
     directions and reconcile, then inject an ELO-based draw prior so draw
     probabilities are realistic rather than near-zero.
-    Results are cached per (team_a, team_b, neutral, apply_host_flag).
+    Results are cached per (teams, flags, Elo values) — the Elo values are
+    part of the key so live-updated ratings don't collide with the
+    pre-tournament ones.
     """
-    cache_key = (team_a, team_b, neutral, apply_host_flag)
+    elo = elo_map if elo_map is not None else TEAM_ELO
+    cache_key = (team_a, team_b, neutral, apply_host_flag,
+                 round(elo.get(team_a, 1500)), round(elo.get(team_b, 1500)))
     if cache_key in _prob_cache:
         return _prob_cache[cache_key]
     _load_models()
 
-    feats_ab = _build_features(team_a, team_b, neutral, apply_host_flag)
-    feats_ba = _build_features(team_b, team_a, neutral, apply_host_flag)
+    feats_ab = _build_features(team_a, team_b, neutral, apply_host_flag, elo_map)
+    feats_ba = _build_features(team_b, team_a, neutral, apply_host_flag, elo_map)
 
     X_ab = pd.DataFrame(
         _scaler.transform(feats_ab[_feature_cols]), columns=_feature_cols
@@ -165,7 +174,7 @@ def predict_win_prob(team_a: str, team_b: str,
     p_b_raw = (p_b_wins_ba + (1 - p_a_wins_ab)) / 2
 
     # ELO-based draw prior: ~28% max for equal teams, decays as gap widens
-    elo_diff = abs(TEAM_ELO.get(team_a, 1500) - TEAM_ELO.get(team_b, 1500))
+    elo_diff = abs(elo.get(team_a, 1500) - elo.get(team_b, 1500))
     draw_prior = 0.28 * np.exp(-elo_diff / 500)
 
     scale = 1.0 - draw_prior
@@ -177,7 +186,9 @@ def predict_win_prob(team_a: str, team_b: str,
     result = p_a / total, p_draw / total, p_b / total
 
     _prob_cache[cache_key] = result
-    _prob_cache[(team_b, team_a, neutral, apply_host_flag)] = (result[2], result[1], result[0])
+    _prob_cache[(team_b, team_a, neutral, apply_host_flag,
+                 round(elo.get(team_b, 1500)), round(elo.get(team_a, 1500)))] = \
+        (result[2], result[1], result[0])
     return result
 
 
@@ -185,14 +196,16 @@ def predict_win_prob(team_a: str, team_b: str,
 
 def simulate_match(team_a: str, team_b: str,
                    neutral: bool = True,
-                   allow_draw: bool = True) -> str:
+                   allow_draw: bool = True,
+                   elo_map: dict | None = None) -> str:
     """
     Simulate a single match outcome.
     In knockout rounds (allow_draw=False) the draw probability is redistributed
     proportionally to the two win probabilities (i.e. extra time / penalties).
     """
     p_a, p_draw, p_b = predict_win_prob(team_a, team_b, neutral,
-                                        apply_host_flag=False)
+                                        apply_host_flag=False,
+                                        elo_map=elo_map)
     if not allow_draw:
         p_a_ko = p_a + p_draw * (p_a / (p_a + p_b))
         p_b_ko = 1.0 - p_a_ko

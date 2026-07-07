@@ -618,15 +618,54 @@ elif page == "Winner Probabilities":
     st.title("🏆 WC 2026 — Winner Probabilities")
     st.caption("Monte Carlo simulation · Dixon-Coles τ correction · no host bias")
 
+    # ── Live-conditioned probabilities (tournament under way) ─────────────────
+    @st.cache_data(ttl=1800, show_spinner=False)
+    def _live_sim_results(n: int = 10_000) -> dict | None:
+        from src.live_simulate import run_live_monte_carlo
+        return run_live_monte_carlo(n_simulations=n)
+
+    live_available = is_tournament_live() and is_api_configured()
+    live_results = None
+    view = "Pre-tournament simulation"
+    if live_available:
+        view = st.radio(
+            "Probability source",
+            ["🔴 Live — conditioned on results so far", "Pre-tournament simulation"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+    live_mode = live_available and view.startswith("🔴")
+
+    if live_mode:
+        with st.spinner("Simulating remaining matches from the current bracket…"):
+            live_results = _live_sim_results()
+        if live_results is None:
+            live_mode = False
+            st.error(
+                "Couldn't fetch the live bracket from football-data.org — "
+                "showing pre-tournament simulation instead."
+            )
+
     # ── Simulation controls ───────────────────────────────────────────────────
-    with st.expander("⚙️ Simulation settings", expanded=False):
-        n_sims  = st.slider("Number of simulations", 500, 20_000, 10_000, step=500)
-        seed    = st.number_input("Random seed", value=42, min_value=0, step=1)
-        run_new = st.button("▶ Run simulation", type="primary")
+    probs: dict[str, float] = {}
+    run_new = False
+
+    if live_mode:
+        probs = live_results["win_probs"]
+        n_alive = sum(1 for p in probs.values() if p > 0)
+        st.success(
+            f"Conditioned on **{live_results['n_finished']} real results** — "
+            f"Elo ratings updated match-by-match, actual knockout bracket used, "
+            f"only the **{live_results['n_remaining']} remaining matches** are "
+            f"simulated (10,000 runs). {n_alive} teams can still win."
+        )
+    else:
+        with st.expander("⚙️ Simulation settings", expanded=False):
+            n_sims  = st.slider("Number of simulations", 500, 20_000, 10_000, step=500)
+            seed    = st.number_input("Random seed", value=42, min_value=0, step=1)
+            run_new = st.button("▶ Run simulation", type="primary")
 
     # ── Load or run ───────────────────────────────────────────────────────────
-    probs: dict[str, float] = {}
-
     if run_new:
         with st.spinner(f"Running {n_sims:,} simulations… (~2 min)"):
             from src.simulate import _prob_cache
@@ -637,7 +676,7 @@ elif page == "Winner Probabilities":
             json.dump({"n_simulations": n_sims, "seed": seed, "win_probs": probs}, f, indent=2)
         st.success("Done! Results saved — switch to Tournament Schedule to see the bracket update.")
 
-    elif SIM_RESULTS_PATH.exists():
+    elif not live_mode and SIM_RESULTS_PATH.exists():
         with open(SIM_RESULTS_PATH) as f:
             data = json.load(f)
         probs = data["win_probs"]
@@ -645,24 +684,30 @@ elif page == "Winner Probabilities":
             f"Showing saved results ({data['n_simulations']:,} simulations, "
             f"seed {data['seed']}). Expand settings above to re-run."
         )
-    else:
+    elif not live_mode:
         st.warning("No simulation results yet. Expand settings above and click **▶ Run simulation**.")
 
     if probs:
         probs_sorted = dict(sorted(probs.items(), key=lambda x: x[1], reverse=True))
+        if live_mode:
+            # Eliminated teams sit at exactly 0 — no point charting them
+            probs_sorted = {t: p for t, p in probs_sorted.items() if p > 0} or probs_sorted
         teams_list   = list(probs_sorted.keys())
         pct_list     = [v * 100 for v in probs_sorted.values()]
 
         # Podium
-        top3 = teams_list[:3]
-        m1, m2, m3 = st.columns(3)
-        m1.metric("🥇 Favourite", top3[0], f"{probs_sorted[top3[0]]*100:.1f}%")
-        m2.metric("🥈 2nd",       top3[1], f"{probs_sorted[top3[1]]*100:.1f}%")
-        m3.metric("🥉 3rd",       top3[2], f"{probs_sorted[top3[2]]*100:.1f}%")
+        top3   = teams_list[:3]
+        medals = ["🥇 Favourite", "🥈 2nd", "🥉 3rd"]
+        for col, medal, team in zip(st.columns(3), medals, top3):
+            col.metric(medal, team, f"{probs_sorted[team]*100:.1f}%")
 
         st.markdown("---")
 
-        show_top   = st.slider("Show top N teams", 5, len(teams_list), min(20, len(teams_list)))
+        if len(teams_list) > 5:
+            show_top = st.slider("Show top N teams", 5, len(teams_list),
+                                 min(20, len(teams_list)))
+        else:
+            show_top = len(teams_list)
         teams_show = teams_list[:show_top]
         pct_show   = pct_list[:show_top]
 
@@ -691,11 +736,12 @@ elif page == "Winner Probabilities":
         st.plotly_chart(fig, use_container_width=True)
 
         with st.expander("📋 Full results table"):
+            elo_src = live_results["elo"] if live_mode else TEAM_ELO
             df = pd.DataFrame({
                 "Team":            teams_list,
                 "Win probability": [f"{p:.2f}%" for p in pct_list],
                 "Group": [next((g for g, ts in GROUPS.items() if t in ts), "—")
                           for t in teams_list],
-                "ELO":   [TEAM_ELO.get(t, "—") for t in teams_list],
+                "ELO":   [round(elo_src[t]) if t in elo_src else "—" for t in teams_list],
             })
             st.dataframe(df, use_container_width=True, hide_index=True)
